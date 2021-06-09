@@ -1,15 +1,30 @@
-﻿// client.cpp : Этот файл содержит функцию "main". Здесь начинается и заканчивается выполнение программы.
-//
-
-#include "pch.h"
 #pragma comment(lib, "ws2_32.lib")
+#define HAVE_STRUCT_TIMESPEC
 #define _CRT_SECURE_NO_WARNINGS
 #include <winsock.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <time.h>
 #include <stdlib.h>
 
-void SendData2Server(int count, int number)
+void* ReceiveFromServer(void* param)
+{
+	int bytes;
+	SOCKET server = (SOCKET)param;
+	char* receive = (char*)calloc(1024, sizeof(char));
+	while (1)
+	{
+		bytes = recv(server, receive, 1024, 0);
+		if (bytes > 0)
+		{
+			receive[bytes] = 0;
+			printf("%s\n", receive);
+		}
+	}
+	return (void*)0;
+}
+
+void StartChatting()
 {
 	SOCKET client;
 	client = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
@@ -20,7 +35,7 @@ void SendData2Server(int count, int number)
 	}
 	sockaddr_in server;
 	server.sin_family = AF_INET;
-	server.sin_port = htons(5510); //the same as in server
+	server.sin_port = htons(1111); //the same as in server
 	server.sin_addr.S_un.S_addr = inet_addr("127.0.0.1"); //special look-up address
 	if (connect(client, (sockaddr*)&server, sizeof(server)) == SOCKET_ERROR)
 	{
@@ -28,38 +43,22 @@ void SendData2Server(int count, int number)
 		closesocket(client);
 		return;
 	}
-	char message[1024];
-	sprintf(message, "<%d client> %s %d", number, "test", count);
-	int ret = send(client, message, strlen(message), 0);
-	if (ret == SOCKET_ERROR)
+	
+	char* transmit = (char*)calloc(1024, sizeof(char));
+	char* receive = (char*)calloc(1024, sizeof(char));
+
+	pthread_t mythread;
+	int status = pthread_create(&mythread, NULL, ReceiveFromServer, (void*)client);
+	pthread_detach(mythread);
+
+	while (1)
 	{
-		printf("Can't send message\n");
-		closesocket(client);
-		return;
+		fgets(transmit, 1024, stdin);
+
+		fflush(stdin);
+		Sleep(500);
 	}
-	printf("Sent: %s\nbytes: %d\n\n", message, ret);
-	ret = SOCKET_ERROR;
-	int i = 0;
-	while (ret == SOCKET_ERROR)
-	{
-		//полчение ответа
-		ret = recv(client, message, 1024, 0);
-		//обработка ошибок
-		if (ret == 0 || ret == WSAECONNRESET)
-		{
-			printf("Connection closed\n");
-			break;
-		}
-		if (ret < 0)
-		{
-			//printf("Can't resieve message\n");
-			/*closesocket(client);
-			return;*/
-			continue;
-		}
-		//вывод на экран количества полученных байт и сообщение
-		printf("Recieve: %s\n bytes: %d\n", message, ret);
-	}
+
 	closesocket(client);
 }
 
@@ -71,17 +70,9 @@ int main()
 		printf("Can't connect to socket lib");
 		return 1;
 	}
-	int i = 0;
-	srand(time(0));
-	rand();
-	int number = rand();
-	while (i<1000)
-	{
-		SendData2Server(++i, number);
-		Sleep(rand()%10);
-	}	
-	printf("Session is closed\n");
-	Sleep(1000);
+	
+	StartChatting();
+
 	return 0;
 }
 
