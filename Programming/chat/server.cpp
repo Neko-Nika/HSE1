@@ -1,53 +1,135 @@
-﻿// server.cpp : Этот файл содержит функцию "main". Здесь начинается и заканчивается выполнение программы.
-//
-
-#include "pch.h"
+#define _CRT_SECURE_NO_WARNINGS
 #define HAVE_STRUCT_TIMESPEC
 #include <pthread.h>
 #pragma comment(lib, "ws2_32.lib")
 #include <winsock.h>
 #include <stdio.h>
 #include <Windows.h>
+#include <time.h>
+#define MAX_CLIENTS 11
+#include "funcs.h"
 
 pthread_mutex_t mutex;
 pthread_mutex_t mutex_file;
 
-void* ClientStart(void* param)
+CLIENT clients[MAX_CLIENTS];
+int clientsNum = 0;
+
+int SignIn(SOCKET client)
+{
+	int bytes;
+	char* login = (char*)calloc(256, sizeof(char));
+	char* password = (char*)calloc(256, sizeof(char));
+
+	send(client, "WELCOME TO THE SERVER!\n", strlen("WELCOME TO THE SERVER!\n"), 0);
+	int flag;
+
+	while (1)
+	{
+		int flag = 0;
+		send(client, "Enter your login: ", strlen("Enter your login: "), 0);
+		bytes = recv(client, login, 256, 0);
+		login[bytes] = 0;
+
+		send(client, "Enter your password: ", strlen("Enter your password: "), 0);
+		bytes = recv(client, password, 256, 0);
+		password[bytes] = 0;
+
+		if (bytes > 0)
+		{
+			int rows;
+			char** base = ReadData("clientbase.txt", &rows);
+			char* login_format = (char*)calloc(strlen(login) + 10, sizeof(char));
+			char* password_format = (char*)calloc(strlen(login) + 10, sizeof(char));
+
+			sprintf(login_format, "login:%s\n", login);
+			sprintf(password_format, "password:%s\n", password);
+
+			for (int i = 0; i < rows; i++)
+			{
+				if (strcmp(base[i], login_format) == 0)
+				{
+					if (strcmp(base[i + 1], password_format) == 0)
+					{
+						int index = FindClient(i);
+						clients[index].status = 1;
+						clients[index].socket = client;
+						clients[index].curChat = 0;
+						send(client, "Welcome to the main chat!\n", strlen("Welcome to the main chat!\n"), 0);
+						
+						pthread_mutex_lock(&mutex);
+						printf("%s logged in\n", clients[index].name);
+						pthread_mutex_unlock(&mutex);
+
+						return index;
+					}
+					else
+					{
+						flag = 1;
+						send(client, "Wrong password. Try again!", strlen("Wrong password. Try again!"), 0);
+						break;
+					}
+				}
+			}
+			
+			if (flag < 1)
+			{
+				clients[clientsNum].id = rows - 1;
+				clients[clientsNum].socket = client;
+				clients[clientsNum].friendsNum = 0;
+				clients[clientsNum].status = 1;
+				clients[clientsNum].curChat = 0;
+				clients[clientsNum].chatsNum++;
+				strcpy(clients[clientsNum].name, login);
+				clientsNum++;
+
+				pthread_mutex_lock(&mutex);
+				printf("%s registered\n", clients[clientsNum - 1].name);
+				pthread_mutex_unlock(&mutex);
+
+				AddData(base, login_format, &rows);
+				AddData(base, password_format, &rows);
+				AddData(base, "\n", &rows);
+				
+				pthread_mutex_lock(&mutex_file);
+				WriteData("clientbase.txt", rows, base);
+				pthread_mutex_unlock(&mutex_file);
+
+				send(client, "Welcome to the main chat!\n", strlen("Welcome to the main chat!\n"), 0);
+
+				return (clientsNum - 1);
+			}
+		}
+	}
+}
+
+void* ClientService(void* param)
 {
 	SOCKET client = (SOCKET)param;
-	char recieve[1024], transmit[1024];
-	int ret;
 
-	ret = recv(client, recieve, 1024, 0);
-	if (!ret || ret == SOCKET_ERROR)
-	{
-		pthread_mutex_lock(&mutex);
-		pthread_mutex_lock(&mutex_file);
-		printf("Error getting data\n");
-		fprintf(stdout, "test");
-		pthread_mutex_unlock(&mutex_file);
-		pthread_mutex_unlock(&mutex);
-		return (void*)1;
-	}
-	recieve[ret] = '\0';
+	int index = SignIn(client);
 
-	pthread_mutex_lock(&mutex);
-	pthread_mutex_lock(&mutex_file);
-	fprintf(stdout, "test");
-	printf("%s\n", recieve);
-	pthread_mutex_unlock(&mutex_file);
-	pthread_mutex_unlock(&mutex);
-	sprintf_s(transmit, "%s %s %s\n", "Your data", recieve, "recieved");
-	//Sleep(2000);
-	ret = send(client, transmit, sizeof(transmit), 0);
-	if (ret == SOCKET_ERROR)
+	char* receive = (char*)calloc(1024, sizeof(char));
+	char* transmit = (char*)calloc(1024, sizeof(char));
+	char* date = (char*)calloc(50, sizeof(char));
+	int bytes;
+
+	sprintf(transmit, "%s joined\n", clients[index].name);
+	for (int i = 0; i < clientsNum; i++)
+		if (i != index && clients[i].curChat == clients[index].curChat && clients[i].status == 1)
+			send(clients[i].socket, transmit, strlen(transmit), 0);
+
+	while (1)
 	{
-		pthread_mutex_lock(&mutex);
-		pthread_mutex_lock(&mutex_file);
-		printf("Error sending data\n");
-		pthread_mutex_unlock(&mutex_file);
-		pthread_mutex_unlock(&mutex);
-		return (void*)2;
+		bytes = recv(client, receive, 1024, 0);
+
+			for (int i = 0; i < clientsNum; i++)
+			{
+				if (i != index && clients[i].curChat == clients[index].curChat && clients[i].status == 1)
+					send(clients[i].socket, transmit, strlen(transmit), 0);
+				if (i == index)
+					send(clients[index].socket, date, strlen(date), 0);
+			}
 	}
 
 	return (void*)0;
@@ -66,35 +148,47 @@ int CreateServer()
 	}
 	localaddr.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
 	localaddr.sin_family = AF_INET;
-	localaddr.sin_port = htons(5510);//port number is for example, must be more than 1024
+	localaddr.sin_port = htons(1111);//port number is for example, must be more than 1024
 	if (bind(server, (sockaddr*)&localaddr, sizeof(localaddr)) == SOCKET_ERROR)
 	{
 		printf("Can't start server\n");
 		return 2;
-	}
-	else
+	} else
 	{
 		printf("Server is started\n");
 	}
-	listen(server, 50);//50 клиентов в очереди могут стоять
+	
+	listen(server, MAX_CLIENTS);
 	pthread_mutex_init(&mutex, NULL);
 	pthread_mutex_init(&mutex_file, NULL);
+
+	for (int i = 0; i < MAX_CLIENTS; i++)
+	{
+		clients[i].id = -1;
+		clients[i].curChat = -1;
+		clients[i].friendsList = (int*)calloc(MAX_CLIENTS, sizeof(int));
+		clients[i].name = (char*)calloc(30, sizeof(char));
+		clients[i].friendsNum = 0;
+		clients[i].availableChats = (int*)calloc(MAX_CLIENTS, sizeof(int));
+		clients[i].chatsNum = 0;
+
+	}
+
 	while (1)
 	{
 		size = sizeof(clientaddr);
 		client = accept(server, (sockaddr*)&clientaddr, &size);
-		
+
 		if (client == INVALID_SOCKET)
 		{
 			printf("Error accept client\n");
-			continue;
-		}
-		else
+			continue; 
+		} else
 		{
 			printf("Client is accepted\n");
 		}
 		pthread_t mythread;
-		int status = pthread_create(&mythread, NULL, ClientStart, (void*)client);
+		int status = pthread_create(&mythread, NULL, ClientService, (void*)client);
 		pthread_detach(mythread);
 	}
 	pthread_mutex_destroy(&mutex_file);
@@ -110,8 +204,7 @@ int main()
 	if (WSAStartup(MAKEWORD(1, 1), &wsd) == 0)
 	{
 		printf("Connected to socket lib\n");
-	}
-	else
+	} else
 	{
 		return 1;
 	}
