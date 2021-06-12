@@ -47,6 +47,39 @@ void StartChatting()
 	char* transmit = (char*)calloc(1024, sizeof(char));
 	char* receive = (char*)calloc(1024, sizeof(char));
 
+	int bytes = recv(client, receive, 1024, 0);
+	if (bytes > 0)
+		receive[bytes] = 0;
+	printf("%s\n", receive);
+
+	while (1)
+	{
+		bytes = recv(client, receive, 1024, 0);
+		receive[bytes] = 0;
+		
+		if (strcmp(receive, "Welcome to the main chat!\n") == 0)
+		{
+			system("cls");
+			printf("%s\n", receive);
+			break;
+		}
+		
+		if (strcmp(receive, "Wrong password. Try again!") == 0)
+		{
+			system("cls");
+			printf("%s\n", receive);
+			continue;
+		}
+
+		printf("%s", receive);
+		fgets(transmit, 256, stdin);
+		if (transmit[strlen(transmit) - 1] == '\n')
+			transmit[strlen(transmit) - 1] = 0;
+	
+		send(client, transmit, strlen(transmit), 0);
+		fflush(stdin);
+	}
+
 	pthread_t mythread;
 	int status = pthread_create(&mythread, NULL, ReceiveFromServer, (void*)client);
 	pthread_detach(mythread);
@@ -54,6 +87,8 @@ void StartChatting()
 	while (1)
 	{
 		fgets(transmit, 1024, stdin);
+
+		send(client, transmit, strlen(transmit), 0);
 
 		fflush(stdin);
 		Sleep(500);
