@@ -13,7 +13,30 @@ pthread_mutex_t mutex;
 pthread_mutex_t mutex_file;
 
 CLIENT clients[MAX_CLIENTS];
+CHAT rooms[MAX_CLIENTS];
 int clientsNum = 0;
+int roomsNum = 0;
+
+int FindClient(int id)
+{
+	for (int i = 0; i < clientsNum; i++)
+	{
+		if (clients[i].id == id)
+			return i;
+	}
+	return -1;
+}
+
+void CreateRoom(const char* name, int client)
+{
+	strcpy(rooms[roomsNum].name, name);
+	sprintf(rooms[roomsNum].filename, "%s.txt", name);
+	if (client > -1)
+		strcpy(rooms[roomsNum].admin, clients[client].name);
+	else
+		strcpy(rooms[roomsNum].admin, "\0");
+	roomsNum++;
+}
 
 int SignIn(SOCKET client)
 {
@@ -119,9 +142,33 @@ void* ClientService(void* param)
 		if (i != index && clients[i].curChat == clients[index].curChat && clients[i].status == 1)
 			send(clients[i].socket, transmit, strlen(transmit), 0);
 
+	char* hist = ReadHistory(rooms[clients[index].curChat].filename);
+	send(client, hist, strlen(hist), 0);
+
 	while (1)
 	{
 		bytes = recv(client, receive, 1024, 0);
+
+		if (bytes > 0)
+		{
+			receive[bytes] = 0;
+
+			int size;
+			char** history = ReadData(rooms[clients[index].curChat].filename, &size);
+
+			time_t seconds = time(NULL);
+			tm* info = localtime(&seconds);
+
+			sprintf(date, "Delivered on (%d:%d, %d.%d.%d)\n", info->tm_hour, info->tm_min,
+				info->tm_mday, info->tm_mon + 1, info->tm_year + 1900);
+
+			sprintf(transmit, "%s: %s%s", clients[index].name, receive, date);
+			AddData(history, transmit, &size);
+			AddData(history, "\n", &size);
+
+			pthread_mutex_lock(&mutex_file);
+			WriteData(rooms[clients[index].curChat].filename, size, history);
+			pthread_mutex_unlock(&mutex_file);
 
 			for (int i = 0; i < clientsNum; i++)
 			{
@@ -130,6 +177,7 @@ void* ClientService(void* param)
 				if (i == index)
 					send(clients[index].socket, date, strlen(date), 0);
 			}
+		}
 	}
 
 	return (void*)0;
@@ -172,7 +220,12 @@ int CreateServer()
 		clients[i].availableChats = (int*)calloc(MAX_CLIENTS, sizeof(int));
 		clients[i].chatsNum = 0;
 
+		rooms[i].name = (char*)calloc(30, sizeof(char));
+		rooms[i].admin = (char*)calloc(30, sizeof(char));
+		rooms[i].filename = (char*)calloc(30, sizeof(char));
 	}
+
+	CreateRoom("main", -1);
 
 	while (1)
 	{

@@ -36,3 +36,18 @@ void WriteData(const char* output_name, int rows, char** data)
 
     fclose(out);
 }
+
+char* ReadHistory(const char* name)
+{
+    FILE* in = fopen(name, "a+");
+
+    char* history = (char*)calloc(1024, sizeof(char));
+    int bytes = fread(history, sizeof(char), 1024, in);
+
+    history[bytes] = 0;
+
+    if (bytes > 0)
+        strcat(history, "-------------\n");
+
+    return history;
+}
