@@ -88,7 +88,15 @@ void StartChatting()
 	{
 		fgets(transmit, 1024, stdin);
 
+		if (strstr(transmit, "/create ") || strstr(transmit, "/room "))
+		{
+			system("cls");
+		}
+
 		send(client, transmit, strlen(transmit), 0);
+		
+		if (strcmp(transmit, "/exit\n") == 0)
+			exit(-1);
 
 		fflush(stdin);
 		Sleep(500);

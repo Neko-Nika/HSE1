@@ -153,6 +153,194 @@ void* ClientService(void* param)
 		{
 			receive[bytes] = 0;
 
+			if (strcmp(receive, "/help\n") == 0)
+			{
+				char* help = ReadHistory("help.txt");
+				send(client, help, strlen(help), 0);
+				continue;
+			}
+
+			if (strstr(receive, "/friend ") || strstr(receive, "/drop ") || strstr(receive, "/invite "))
+			{
+				char* nickname = (char*)calloc(30, sizeof(char));
+				int k = 0, j = 0;
+				while (receive[k] != ' ')
+					k++;
+				k++;
+				while (receive[k] != '\n')
+				{
+					nickname[j++] = receive[k];
+					k++;
+				}
+
+				if (strstr(receive, "/friend "))
+				{
+					for (int i = 0; i < clientsNum; i++)
+						if (strcmp(clients[i].name, nickname) == 0)
+						{
+							clients[index].friendsList[clients[index].friendsNum] = i;
+							clients[index].friendsNum++;
+
+							sprintf(transmit, "%s follows you. ", clients[index].name);
+
+							for (int j = 0; j < clients[i].friendsNum; j++)
+							{
+								if (clients[clients[i].friendsList[j]].name == clients[index].name)
+								{
+									strcat(transmit, "You are friends now!");
+									break;
+								}
+							}
+
+							strcat(transmit, "\n");
+							send(clients[i].socket, transmit, strlen(transmit), 0);
+							break;
+						}
+				}
+				else if (strstr(receive, "/drop "))
+				{
+					for (int i = 0; i < clients[index].friendsNum; i++)
+						if (strcmp(clients[clients[index].friendsList[i]].name, nickname) == 0)
+						{
+							int friendIndex = clients[index].friendsList[i];
+							if (i != clients[index].friendsNum - 1)
+							{
+								for (int j = i + 1; j < clients[index].friendsNum; j++)
+									clients[index].friendsList[j - 1] = clients[index].friendsList[j];
+							}
+
+							clients[index].friendsNum--;
+							sprintf(transmit, "%s unfollows you. You are not friends anymore!", clients[index].name);
+							send(clients[friendIndex].socket, transmit, strlen(transmit), 0);
+							break;
+						}
+				}
+				else
+				{
+					int friendIndex;
+					for (int i = 0; i < clients[index].friendsNum; i++)
+						if (strcmp(clients[clients[index].friendsList[i]].name, nickname) == 0)
+						{
+							friendIndex = clients[index].friendsList[i];
+
+							int flag = 0;
+							for (int j = 0; j < clients[friendIndex].chatsNum; j++)
+								if (clients[friendIndex].availableChats[i] == clients[index].curChat)
+								{
+									flag = 1;
+									break;
+								}
+
+							if (flag > 0)
+								send(client, "Your friend is already here!\n", strlen("Your friend is already here!\n"), 0);
+							else
+							{
+								sprintf(transmit, "You have been invited in %s room!\n", rooms[clients[index].curChat].name);
+								send(clients[friendIndex].socket, transmit, strlen(transmit), 0);
+								clients[friendIndex].availableChats[clients[friendIndex].chatsNum] = clients[index].curChat;
+								clients[friendIndex].chatsNum++;
+							}
+
+							break;
+						}
+				}
+
+				continue;
+			}
+
+			if (strcmp(receive, "/friendlist\n") == 0)
+			{
+				char* friendlist = (char*)calloc(1024, sizeof(char));
+				friendlist[0] = '\n';
+				for (int i = 0; i < clients[index].friendsNum; i++)
+				{
+					CLIENT* tmp = &(clients[clients[index].friendsList[i]]);
+					strcat(friendlist, tmp->name);
+					if (tmp->status > 0)
+						strcat(friendlist, " - online\n");
+					else
+						strcat(friendlist, " - offline\n");
+				}
+				send(client, friendlist, strlen(friendlist), 0);
+				continue;
+			}
+
+			if (strstr(receive, "/create ") || strstr(receive, "/room "))
+			{
+				char* roomName = (char*)calloc(30, sizeof(char));
+				int k = 0, j = 0;
+				while (receive[k] != ' ')
+					k++;
+				k++;
+				while (receive[k] != '\n')
+				{
+					roomName[j++] = receive[k];
+					k++;
+				}
+
+				if (strstr(receive, "/create "))
+				{
+					send(client, "You created room!\n", strlen("You created room!\n"), 0);
+
+					CreateRoom(roomName, index);
+
+					clients[index].availableChats[clients[index].chatsNum] = roomsNum - 1;
+					clients[index].chatsNum++;
+					clients[index].curChat = roomsNum - 1;
+				}
+				else
+				{
+					int roomIndex;
+					for (int i = 0; i < clients[index].chatsNum; i++)
+						if (strcmp(rooms[clients[index].availableChats[i]].name, roomName) == 0)
+						{
+							roomIndex = clients[index].availableChats[i];
+							break;
+						}
+
+					clients[index].curChat = roomIndex;
+
+					sprintf(transmit, "Welcome to the %s chat!\n", rooms[roomIndex].name);
+					send(client, transmit, strlen(transmit), 0);
+
+					char* roomHist = ReadHistory(rooms[roomIndex].filename);
+					send(client, roomHist, strlen(roomHist), 0);
+
+					sprintf(transmit, "%s joined\n", clients[index].name);
+					for (int i = 0; i < clientsNum; i++)
+						if (i != index && clients[i].curChat == clients[index].curChat && clients[i].status == 1)
+							send(clients[i].socket, transmit, strlen(transmit), 0);
+				}
+
+				continue;
+			}
+
+			if (strcmp(receive, "/roomlist\n") == 0)
+			{
+				char* roomlist = (char*)calloc(1024, sizeof(char));
+				roomlist[0] = '\n';
+				for (int i = 0; i < clients[index].chatsNum; i++)
+				{
+					CHAT* tmp = &(rooms[clients[index].availableChats[i]]);
+					sprintf(transmit, "%s\n", tmp->name);
+					strcat(roomlist, transmit);
+				}
+				send(client, roomlist, strlen(roomlist), 0);
+				continue;
+			}
+
+			if (strcmp(receive, "/exit\n") == 0)
+			{
+				clients[index].status = 0;
+				sprintf(transmit, "%s goes offline", clients[index].name);
+
+				for (int i = 0; i < clientsNum; i++)
+					if (i != index && clients[i].curChat == clients[index].curChat && clients[i].status == 1)
+						send(clients[i].socket, transmit, strlen(transmit), 0);
+
+				continue;
+			}
+
 			int size;
 			char** history = ReadData(rooms[clients[index].curChat].filename, &size);
 
