@@ -1,0 +1,9 @@
+
+/friendlist         - to see your friends
+/friend [nickname]  - to send a friend request
+/drop [nickname]    - to remove your friend
+/roomlist           - to see all available rooms
+/room [room_name]   - to connect to the room
+/create [room_name] - to create new room
+/invite [nickname]  - to invite friend to the room
+/exit               - to go offline
